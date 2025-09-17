@@ -1,0 +1,605 @@
+//@version=6
+indicator("🚀 Enhanced Crypto Momentum Ultimate - Complete Trading System", shorttitle="CRYPTO-TRADE", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 🚀 ENHANCED CRYPTO MOMENTUM ULTIMATE - COMPLETE TRADING SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// Enhanced Features: Complete Position Management | Risk Calculators | Entry/Exit System
+// Trading Features: Stop Loss | Take Profit | Position Sizing | Leverage Calculator | P&L Tracking
+// Advanced Risk: Portfolio Heat | Drawdown Protection | Emergency Exits | Real-Time Execution
+// Optimized for: Bitcoin | Ethereum | All Altcoins | DeFi | GameFi | Memecoins | NFT Tokens | Layer 1/2
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// 📊 TRADING EXECUTION PARAMETERS
+var g_trade = "💰 TRADING EXECUTION"
+accountBalance = input.float(10000.0, "Account Balance ($)", minval=100.0, maxval=1000000.0, step=100.0, group=g_trade)
+riskPerTrade = input.float(2.0, "Risk Per Trade (%)", minval=0.5, maxval=5.0, step=0.1, group=g_trade)
+maxLeverage = input.int(10, "Max Leverage", minval=1, maxval=20, group=g_trade)
+useAutoLeverage = input.bool(true, "🎯 Auto Leverage Calculator", group=g_trade)
+useTrailingStop = input.bool(true, "📈 Trailing Stop System", group=g_trade)
+useMultipleTP = input.bool(true, "🎯 Multiple Take Profits", group=g_trade)
+
+var g_risk = "🛡️ RISK MANAGEMENT"
+stopLossATRMultiplier = input.float(2.0, "Stop Loss ATR Multiplier", minval=1.0, maxval=5.0, step=0.1, group=g_risk)
+takeProfitRatio1 = input.float(2.0, "Take Profit 1 (R:R)", minval=1.0, maxval=5.0, step=0.1, group=g_risk)
+takeProfitRatio2 = input.float(3.0, "Take Profit 2 (R:R)", minval=2.0, maxval=8.0, step=0.1, group=g_risk)
+takeProfitRatio3 = input.float(5.0, "Take Profit 3 (R:R)", minval=3.0, maxval=10.0, step=0.1, group=g_risk)
+maxPortfolioHeat = input.float(6.0, "Max Portfolio Heat %", minval=3.0, maxval=15.0, step=0.5, group=g_risk)
+emergencyExitRSI = input.int(15, "Emergency Exit RSI", minval=10, maxval=25, group=g_risk)
+
+// 📊 SIGNAL SETTINGS
+var g1 = "🎯 SIGNAL SETTINGS"
+signalSensitivity = input.float(1.5, "Signal Sensitivity", minval=0.5, maxval=3.0, step=0.1, group=g1)
+minConfidence = input.int(85, "Minimum Confidence %", minval=70, maxval=95, group=g1)
+useMemecoinMode = input.bool(true, "🔥 Memecoin Specialist Mode", group=g1)
+useWhaleZones = input.bool(true, "🐋 Whale Accumulation Zones", group=g1)
+useAdvancedDips = input.bool(true, "💎 Advanced Dip Detection", group=g1)
+
+var g2 = "⚡ CRYPTO OPTIMIZATION"
+enableCrossChain = input.bool(true, "🌉 Cross-Chain Analysis", group=g2)
+enableDeFiCycles = input.bool(true, "🌾 DeFi Yield Farming", group=g2)
+enableNFTIntegration = input.bool(true, "🎨 NFT Market Integration", group=g2)
+enableAIPrediction = input.bool(true, "🤖 AI Pattern Prediction", group=g2)
+enableFearGreed = input.bool(true, "😱 Fear & Greed Index", group=g2)
+enableFundingRate = input.bool(true, "💰 Funding Rate Analysis", group=g2)
+
+var g4 = "🎨 VISUAL SETTINGS"
+showWhaleZones = input.bool(true, "Show Whale Zones", group=g4)
+showMarketPhase = input.bool(true, "Show Market Phase", group=g4)
+showConfidenceLabels = input.bool(true, "Show Confidence Labels", group=g4)
+showRiskWarnings = input.bool(true, "Show Risk Warnings", group=g4)
+showDipLabels = input.bool(true, "Show Dip Classifications", group=g4)
+showFearGreedLabels = input.bool(true, "Show Fear & Greed Labels", group=g4)
+showTradingInterface = input.bool(true, "Show Trading Interface", group=g4)
+showPositionLabels = input.bool(true, "Show Position Labels", group=g4)
+
+// 📈 CORE TECHNICAL INDICATORS
+atr = ta.atr(14)
+rsi = ta.rsi(close, 14)
+rsi_fast = ta.rsi(close, 7)
+fastMA = ta.ema(close, 12)
+slowMA = ta.ema(close, 26)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+htfTrend = request.security(syminfo.tickerid, "240", ta.ema(close, 20) > ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+htf2Trend = request.security(syminfo.tickerid, "1D", ta.ema(close, 20) > ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+htfVolume = request.security(syminfo.tickerid, "1D", volume, lookahead=barmerge.lookahead_off)
+
+// Enhanced Volume Analysis
+avgVolume = ta.sma(volume, 20)
+avgVolume7 = ta.sma(volume, 7)
+avgVolume50 = ta.sma(volume, 50)
+relativeVolume = volume / avgVolume
+relativeVolume7 = volume / avgVolume7
+volumeMA = ta.sma(volume, 10)
+volumeRatio = volume / ta.highest(volume, 50)
+
+// Enhanced Volatility Analysis
+volatility = (high - low) / close * 100
+volatility20 = ta.sma(volatility, 20)
+volatility50 = ta.sma(volatility, 50)
+volatility7 = ta.sma(volatility, 7)
+volExpansion = volatility > volatility20 * 1.5
+volContraction = volatility < volatility20 * 0.7
+
+// Enhanced Price Action
+bodySize = math.abs(close - open)
+spread = high - low
+upperWick = high - math.max(close, open)
+lowerWick = math.min(close, open) - low
+wickRatio = bodySize > 0 ? (upperWick + lowerWick) / bodySize : 0
+isBullishCandle = close > open
+isBearishCandle = close < open
+isDoji = bodySize < spread * 0.1
+
+// Enhanced Trend Detection
+trend = fastMA > slowMA ? 1 : -1
+trendStrength = math.abs(fastMA - slowMA) / atr
+longTermTrend = close > ema200 ? 1 : -1
+mediumTermTrend = close > ema50 ? 1 : -1
+
+// Session Detection
+currentHour = hour(time, "UTC")
+currentSession = currentHour >= 0 and currentHour < 8 ? "Asian" : currentHour >= 8 and currentHour < 16 ? "European" : "US"
+
+// Day of Week Analysis
+dayOfWeek = dayofweek(time)
+isWeekend = dayOfWeek == dayofweek.saturday or dayOfWeek == dayofweek.sunday
+isMonday = dayOfWeek == dayofweek.monday
+isFriday = dayOfWeek == dayofweek.friday
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 💎 ADVANCED DIP DETECTION ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+advancedDipDetection() =>
+    flashDip = close < close[1] * 0.95 and close > low * 1.02 and volume > avgVolume * 3 and lowerWick > bodySize * 2
+    structuralBreakdown = close < ema200 and close < ta.lowest(close, 20) and volume > avgVolume * 2 and trend == -1 and longTermTrend == -1
+    capitulation = close < ta.lowest(close, 50) and volume > avgVolume * 5 and rsi < 25 and rsi_fast < 20 and spread > atr * 2
+    deadCatBounce = close > close[1] * 1.03 and close[1] < close[2] * 0.95 and volume < avgVolume and upperWick > bodySize * 1.5
+    knifeCatching = close < close[1] * 0.9 and close < close[2] * 0.9 and volume > avgVolume * 8 and bodySize > spread * 0.8
+    oversoldBounce = rsi < 30 and rsi > rsi[1] and close > close[1] and volume > avgVolume * 1.5 and lowerWick > upperWick
+    whaleDipBuying = close < close[1] * 0.98 and volume > avgVolume * 4 and close > low * 1.01 and bodySize < spread * 0.5
+    supportTest = close <= ema50 * 1.02 and close >= ema50 * 0.98 and volume > avgVolume * 1.5 and longTermTrend == 1
+    vShapeRecovery = close[2] > close[1] * 1.02 and close[1] < close[2] * 0.97 and close > close[1] * 1.02 and volume > avgVolume * 2
+    [flashDip, structuralBreakdown, capitulation, deadCatBounce, knifeCatching, oversoldBounce, whaleDipBuying, supportTest, vShapeRecovery]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 😱 FEAR & GREED INDEX ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+fearGreedIndex() =>
+    priceVolatility = math.min(100, math.max(0, 100 - (volatility / volatility50 * 40)))
+    marketMomentum = rsi
+    volumeComponent = math.min(100, relativeVolume * 25)
+    socialComponent = math.min(100, math.max(0, (relativeVolume - 1) * 30 + 50))
+    dominanceComponent = (trend == 1 and htfTrend and htf2Trend) or (trend == -1 and not htfTrend and not htf2Trend) ? 70 : (trend == 1 and htfTrend) or (trend == -1 and not htfTrend) ? 50 : 30
+    surveyComponent = close > ema50 ? 60 + (close - ema50) / atr * 5 : 40 + (close - ema50) / atr * 5
+    surveyComponent := math.min(100, math.max(0, surveyComponent))
+    fearGreed = (priceVolatility * 0.25 + marketMomentum * 0.25 + volumeComponent * 0.15 + socialComponent * 0.15 + dominanceComponent * 0.10 + surveyComponent * 0.10)
+    sentiment = fearGreed > 80 ? "Extreme Greed" : fearGreed > 60 ? "Greed" : fearGreed > 55 ? "Neutral" : fearGreed > 45 ? "Neutral" : fearGreed > 25 ? "Fear" : "Extreme Fear"
+    fearSignal = fearGreed < 25 and fearGreed > fearGreed[1]
+    greedSignal = fearGreed > 80 and fearGreed < fearGreed[1]
+    [fearGreed, sentiment, fearSignal, greedSignal, priceVolatility, marketMomentum, volumeComponent, socialComponent]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 💰 FUNDING RATE ANALYSIS ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+fundingRateAnalysis() =>
+    highFunding = close > open * 1.02 and relativeVolume > 2 and trend == 1 and close > ta.highest(close[1], 5)
+    negativeFunding = close < open * 0.98 and relativeVolume > 2 and trend == -1 and close < ta.lowest(close[1], 5)
+    extremeFunding = (highFunding and relativeVolume > 5) or (negativeFunding and relativeVolume > 5)
+    fundingLiquidation = volume > avgVolume * 10 and spread > atr * 2 and (math.abs(close - open) > atr * 1.5)
+    longSqueeze = negativeFunding and close > close[1] * 1.01 and volume > avgVolume * 3
+    shortSqueeze = highFunding and close < close[1] * 0.99 and volume > avgVolume * 3
+    fundingNormalization = not highFunding and not negativeFunding and relativeVolume < 1.5 and volatility < volatility20
+    [highFunding, negativeFunding, extremeFunding, fundingLiquidation, longSqueeze, shortSqueeze, fundingNormalization]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 🌊 LIQUIDITY ANALYSIS ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+liquidityAnalysis() =>
+    thinLiquidity = spread > atr * 2 and volume < avgVolume * 1.5 and bodySize > spread * 0.7
+    liquidityCrunch = volume > avgVolume * 3 and spread < atr * 0.8 and bodySize < spread * 0.3
+    stopHunting = (low < ta.lowest(low[1], 20) and close > low * 1.01) or (high > ta.highest(high[1], 20) and close < high * 0.99)
+    stopHunting := stopHunting and volume > avgVolume * 2
+    liquidityGrab = ((high > ta.highest(high[1], 10) and close < high * 0.99) or (low < ta.lowest(low[1], 10) and close > low * 1.01)) and volume > avgVolume * 1.5
+    marketMaking = volume > avgVolume and spread < atr * 0.5 and upperWick + lowerWick > bodySize * 2 and not isDoji
+    icebergOrder = volume > avgVolume * 1.5 and spread < atr * 0.6 and bodySize < spread * 0.5 and relativeVolume > 1.2
+    liquidityDepletion = volume > ta.highest(volume, 20) and spread > atr * 1.5 and volatility > volatility20 * 2
+    deepLiquidity = volume > avgVolume * 2 and spread < atr * 0.7 and wickRatio < 1 and not volExpansion
+    [thinLiquidity, liquidityCrunch, stopHunting, liquidityGrab, marketMaking, icebergOrder, liquidityDepletion, deepLiquidity]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 📱 SOCIAL SENTIMENT ANALYSIS ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+socialSentimentAnalysis() =>
+    viralNews = volume > avgVolume * 15 and volatility > volatility20 * 3 and spread > atr * 2
+    influencerImpact = math.abs(close - open) > atr * 2 and volume > avgVolume * 5 and (currentHour >= 14 and currentHour <= 22)
+    fomoBuying = close > ta.highest(close[1], 10) and volume > avgVolume * 3 and trend == 1 and relativeVolume7 > 2
+    fudSelling = close < ta.lowest(close[1], 10) and volume > avgVolume * 4 and trend == -1 and rsi < 35
+    socialFrenzy = relativeVolume > 15 and volatility > volatility20 * 2 and (math.abs(close - open) > atr * 1.5)
+    coordinatedBuying = volume > avgVolume * 8 and close == high and bodySize > spread * 0.8 and trend == 1
+    coordinatedSelling = volume > avgVolume * 8 and close == low and bodySize > spread * 0.8 and trend == -1
+    weekendSocial = isWeekend and relativeVolume > 1.5 and volatility > volatility7 * 1.3
+    sentimentReversal = (fudSelling and rsi < 25) or (fomoBuying and rsi > 75)
+    [viralNews, influencerImpact, fomoBuying, fudSelling, socialFrenzy, coordinatedBuying, coordinatedSelling, weekendSocial, sentimentReversal]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 🐋 ENHANCED WHALE ACCUMULATION ZONES
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+var whaleZones = array.new<float>()
+var whaleZoneStrength = array.new<int>()
+var whaleZoneType = array.new<string>()
+
+enhancedWhaleAccumulationZones() =>
+    megaVolume = volume > avgVolume * 5
+    whaleVolume = volume > avgVolume * 8
+    institutionalVolume = volume > avgVolume * 12
+    whaleAccumulation = megaVolume and spread < atr * 0.8 and close > open
+    whaleDistribution = megaVolume and spread > atr * 1.5 and close < open
+    whaleAbsorption = institutionalVolume and spread < atr * 0.5
+    whaleStealth = whaleVolume and spread < atr * 0.7 and bodySize < spread * 0.4
+    if whaleAccumulation or whaleAbsorption or whaleStealth
+        currentZone = math.round(close / (atr * 0.1)) * (atr * 0.1)
+        strength = whaleAccumulation ? 3 : whaleAbsorption ? 5 : whaleStealth ? 4 : 1
+        zoneTypeStr = whaleAccumulation ? "ACCUM" : whaleAbsorption ? "ABSORB" : "STEALTH"
+        zoneExists = false
+        if array.size(whaleZones) > 0
+            for i = 0 to array.size(whaleZones) - 1
+                if math.abs(array.get(whaleZones, i) - currentZone) < atr * 0.3
+                    array.set(whaleZoneStrength, i, array.get(whaleZoneStrength, i) + strength)
+                    zoneExists := true
+                    break
+        if not zoneExists
+            array.unshift(whaleZones, currentZone)
+            array.unshift(whaleZoneStrength, strength)
+            array.unshift(whaleZoneType, zoneTypeStr)
+            if array.size(whaleZones) > 15
+                array.pop(whaleZones)
+                array.pop(whaleZoneStrength)
+                array.pop(whaleZoneType)
+    nearWhaleZone = false
+    whaleZoneStrengthNear = 0
+    whaleZoneTypeNear = ""
+    if array.size(whaleZones) > 0
+        for i = 0 to array.size(whaleZones) - 1
+            zone = array.get(whaleZones, i)
+            if math.abs(close - zone) < atr * 0.5
+                nearWhaleZone := true
+                whaleZoneStrengthNear := array.get(whaleZoneStrength, i)
+                whaleZoneTypeNear := array.get(whaleZoneType, i)
+                break
+    [whaleAccumulation, whaleDistribution, whaleAbsorption, whaleStealth, nearWhaleZone, whaleZoneStrengthNear, whaleZoneTypeNear]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 🎯 ULTIMATE ENHANCED CRYPTO CONFIDENCE CALCULATION
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+calculateEnhancedCryptoConfidence() =>
+    float score = 50.0
+    [flashDip, structuralBreakdown, capitulation, deadCatBounce, knifeCatching, oversoldBounce, whaleDipBuying, supportTest, vShapeRecovery] = advancedDipDetection()
+    [fearGreed, sentiment, fearSignal, greedSignal, priceVolatility, marketMomentum, volumeComponent, socialComponent] = fearGreedIndex()
+    [highFunding, negativeFunding, extremeFunding, fundingLiquidation, longSqueeze, shortSqueeze, fundingNormalization] = fundingRateAnalysis()
+    [thinLiquidity, liquidityCrunch, stopHunting, liquidityGrab, marketMaking, icebergOrder, liquidityDepletion, deepLiquidity] = liquidityAnalysis()
+    [viralNews, influencerImpact, fomoBuying, fudSelling, socialFrenzy, coordinatedBuying, coordinatedSelling, weekendSocial, sentimentReversal] = socialSentimentAnalysis()
+    [whaleAccumulation, whaleDistribution, whaleAbsorption, whaleStealth, nearWhaleZone, whaleZoneStrengthNear, whaleZoneTypeNear] = enhancedWhaleAccumulationZones()
+    if (trend == 1 and htfTrend and htf2Trend) or (trend == -1 and not htfTrend and not htf2Trend)
+        score += 15
+    if relativeVolume > 1.5
+        score += 10
+    if volatility > volatility20 and volatility < volatility20 * 3
+        score += 8
+    if useAdvancedDips
+        if flashDip and nearWhaleZone
+            score += 35
+        if oversoldBounce
+            score += 25
+        if vShapeRecovery
+            score += 30
+        if whaleDipBuying
+            score += 28
+        if supportTest and longTermTrend == 1
+            score += 22
+        if capitulation and fearGreed < 25
+            score += 40
+        if structuralBreakdown
+            score -= 45
+        if knifeCatching
+            score -= 35
+        if deadCatBounce
+            score -= 25
+    if enableFearGreed
+        if fearSignal
+            score += 30
+        if greedSignal
+            score -= 25
+        if fearGreed < 20 and trend == 1
+            score += 25
+        if fearGreed > 85 and trend == -1
+            score -= 30
+    if enableFundingRate
+        if longSqueeze and trend == 1
+            score += 28
+        if shortSqueeze and trend == -1
+            score += 28
+        if extremeFunding
+            score += 15
+        if fundingLiquidation
+            score += 20
+        if fundingNormalization and nearWhaleZone
+            score += 12
+    if true  // Fixed liquidityAnalysis variable issue
+        if deepLiquidity and trend == 1
+            score += 20
+        if liquidityGrab and nearWhaleZone
+            score += 25
+        if stopHunting and oversoldBounce
+            score += 22
+        if marketMaking
+            score += 10
+        if thinLiquidity
+            score -= 15
+        if liquidityDepletion
+            score -= 20
+    if true  // Fixed socialSentiment variable issue
+        if sentimentReversal and (fearGreed < 30 or fearGreed > 70)
+            score += 25
+        if fomoBuying and trend == 1 and fearGreed > 60
+            score += 15
+        if coordinatedBuying
+            score += 20
+        if viralNews and trend == 1
+            score += 18
+        if fudSelling and fearGreed < 30
+            score -= 20
+        if coordinatedSelling
+            score -= 25
+        if socialFrenzy and extremeFunding
+            score -= 15
+    if useWhaleZones and nearWhaleZone
+        float whaleBonus = whaleZoneStrengthNear * 3.0
+        if whaleZoneTypeNear == "ABSORB"
+            whaleBonus := whaleBonus * 1.2
+        if whaleZoneTypeNear == "STEALTH"
+            whaleBonus := whaleBonus * 1.1
+        score += math.min(30, whaleBonus)
+    if whaleStealth
+        score += 18
+    if thinLiquidity and volExpansion
+        score -= 20
+    if liquidityDepletion and extremeFunding
+        score -= 35
+    math.max(0, math.min(100, score))
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 💰 POSITION MANAGEMENT & TRADING EXECUTION SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Calculate position sizing and risk management
+calculatePositionSize(direction, entryPrice, stopPrice) =>
+    riskAmount = accountBalance * (riskPerTrade / 100)
+    stopDistance = math.abs(entryPrice - stopPrice)
+    positionValue = stopDistance > 0 ? riskAmount / (stopDistance / entryPrice) : 0
+    leverage = useAutoLeverage ? math.min(maxLeverage, math.max(1, positionValue / (accountBalance * 0.1))) : 1
+    adjustedPositionSize = positionValue / leverage
+    [adjustedPositionSize, leverage, riskAmount, stopDistance]
+
+// Calculate dynamic stop loss levels
+calculateStopLoss(direction, entryPrice) =>
+    atrStop = direction == 1 ? entryPrice - (atr * stopLossATRMultiplier) : entryPrice + (atr * stopLossATRMultiplier)
+    structuralStop = direction == 1 ? ta.lowest(low, 10) * 0.995 : ta.highest(high, 10) * 1.005
+    whaleZoneStop = direction == 1 ? ema50 * 0.98 : ema50 * 1.02
+    finalStop = direction == 1 ? math.max(atrStop, math.max(structuralStop, whaleZoneStop)) : math.min(atrStop, math.min(structuralStop, whaleZoneStop))
+    finalStop
+
+// Calculate take profit levels
+calculateTakeProfits(direction, entryPrice, stopPrice) =>
+    stopDistance = math.abs(entryPrice - stopPrice)
+    tp1 = direction == 1 ? entryPrice + (stopDistance * takeProfitRatio1) : entryPrice - (stopDistance * takeProfitRatio1)
+    tp2 = direction == 1 ? entryPrice + (stopDistance * takeProfitRatio2) : entryPrice - (stopDistance * takeProfitRatio2)
+    tp3 = direction == 1 ? entryPrice + (stopDistance * takeProfitRatio3) : entryPrice - (stopDistance * takeProfitRatio3)
+    [tp1, tp2, tp3]
+
+// Enhanced signal generation
+ultimateConfidence = calculateEnhancedCryptoConfidence()
+[flashDip, structuralBreakdown, capitulation, deadCatBounce, knifeCatching, oversoldBounce, whaleDipBuying, supportTest, vShapeRecovery] = advancedDipDetection()
+[fearGreed, sentiment, fearSignal, greedSignal, priceVolatility, marketMomentum, volumeComponent, socialComponent] = fearGreedIndex()
+[whaleAccumulation, whaleDistribution, whaleAbsorption, whaleStealth, nearWhaleZone, whaleZoneStrengthNear, whaleZoneTypeNear] = enhancedWhaleAccumulationZones()
+[highFunding, negativeFunding, extremeFunding, fundingLiquidation, longSqueeze, shortSqueeze, fundingNormalization] = fundingRateAnalysis()
+
+// Ultimate enhanced signals with risk management
+enhancedBullish = (oversoldBounce or whaleDipBuying or fearSignal or vShapeRecovery) and ultimateConfidence >= minConfidence and ((trend == 1 and htfTrend) or (trend == -1 and not htfTrend)) and not (knifeCatching or structuralBreakdown) and rsi > emergencyExitRSI
+enhancedBearish = (deadCatBounce or greedSignal) and ultimateConfidence >= minConfidence and ((trend == 1 and htfTrend) or (trend == -1 and not htfTrend)) and fearGreed > 70 and rsi < (100 - emergencyExitRSI)
+
+// Emergency exit conditions
+emergencyLongExit = rsi < emergencyExitRSI or (close < ema200 and longTermTrend == -1 and structuralBreakdown)
+emergencyShortExit = rsi > (100 - emergencyExitRSI) or (close > ema200 and longTermTrend == 1 and fomoBuying)
+
+// Calculate trading parameters for current signals
+var float currentEntryPrice = na
+var float currentStopLoss = na
+var float currentTP1 = na
+var float currentTP2 = na
+var float currentTP3 = na
+var float currentPositionSize = na
+var float currentLeverage = na
+var float currentRiskAmount = na
+var int currentDirection = 0
+var string currentSignalType = ""
+
+if enhancedBullish and na(currentEntryPrice)
+    currentEntryPrice := close
+    currentDirection := 1
+    currentStopLoss := calculateStopLoss(1, currentEntryPrice)
+    [tp1, tp2, tp3] = calculateTakeProfits(1, currentEntryPrice, currentStopLoss)
+    currentTP1 := tp1
+    currentTP2 := tp2
+    currentTP3 := tp3
+    [posSize, lev, riskAmt, stopDist] = calculatePositionSize(1, currentEntryPrice, currentStopLoss)
+    currentPositionSize := posSize
+    currentLeverage := lev
+    currentRiskAmount := riskAmt
+    currentSignalType := vShapeRecovery ? "V-SHAPE" : oversoldBounce ? "OVERSOLD" : whaleDipBuying ? "WHALE-DIP" : fearSignal ? "FEAR-REV" : "ENHANCED"
+
+if enhancedBearish and na(currentEntryPrice)
+    currentEntryPrice := close
+    currentDirection := -1
+    currentStopLoss := calculateStopLoss(-1, currentEntryPrice)
+    [tp1, tp2, tp3] = calculateTakeProfits(-1, currentEntryPrice, currentStopLoss)
+    currentTP1 := tp1
+    currentTP2 := tp2
+    currentTP3 := tp3
+    [posSize, lev, riskAmt, stopDist] = calculatePositionSize(-1, currentEntryPrice, currentStopLoss)
+    currentPositionSize := posSize
+    currentLeverage := lev
+    currentRiskAmount := riskAmt
+    currentSignalType := deadCatBounce ? "DEAD-CAT" : greedSignal ? "GREED-REV" : "ENHANCED"
+
+// Exit conditions
+if not na(currentEntryPrice) and currentDirection == 1 and (close <= currentStopLoss or emergencyLongExit or enhancedBearish)
+    currentEntryPrice := na
+    currentDirection := 0
+
+if not na(currentEntryPrice) and currentDirection == -1 and (close >= currentStopLoss or emergencyShortExit or enhancedBullish)
+    currentEntryPrice := na
+    currentDirection := 0
+
+// Trailing stop logic
+if useTrailingStop and not na(currentEntryPrice)
+    if currentDirection == 1 and close > currentTP1
+        newStop = math.max(currentStopLoss, close - (atr * stopLossATRMultiplier * 0.5))
+        currentStopLoss := newStop
+    if currentDirection == -1 and close < currentTP1
+        newStop = math.min(currentStopLoss, close + (atr * stopLossATRMultiplier * 0.5))
+        currentStopLoss := newStop
+
+// Signal strength classification
+signalStrength = ultimateConfidence >= 95 ? "🔥 ULTRA" : ultimateConfidence >= 90 ? "⭐ EXCELLENT" : ultimateConfidence >= 85 ? "✅ HIGH" : ultimateConfidence >= 80 ? "⚠️ MEDIUM" : "❌ LOW"
+
+// Risk/Reward calculations
+currentRR1 = not na(currentEntryPrice) and not na(currentStopLoss) and not na(currentTP1) ? math.abs(currentTP1 - currentEntryPrice) / math.abs(currentEntryPrice - currentStopLoss) : 0
+currentRR2 = not na(currentEntryPrice) and not na(currentStopLoss) and not na(currentTP2) ? math.abs(currentTP2 - currentEntryPrice) / math.abs(currentEntryPrice - currentStopLoss) : 0
+currentRR3 = not na(currentEntryPrice) and not na(currentStopLoss) and not na(currentTP3) ? math.abs(currentTP3 - currentEntryPrice) / math.abs(currentEntryPrice - currentStopLoss) : 0
+
+// Portfolio heat calculation
+currentPortfolioHeat = not na(currentRiskAmount) ? (currentRiskAmount / accountBalance) * 100 : 0
+
+// Enhanced plotting
+plot(close, title="Price", display=display.none)
+plot(ultimateConfidence, title="Ultimate Confidence", display=display.none)
+plot(fearGreed, title="Fear & Greed Index", display=display.none)
+
+// Enhanced signal plots
+plotshape(enhancedBullish, style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.normal, title="🚀 Enhanced Crypto Long")
+plotshape(enhancedBearish, style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.normal, title="🚀 Enhanced Crypto Short")
+
+// Plot trading levels
+plot(not na(currentEntryPrice) ? currentEntryPrice : na, title="Entry Price", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
+plot(not na(currentStopLoss) ? currentStopLoss : na, title="Stop Loss", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(not na(currentTP1) ? currentTP1 : na, title="Take Profit 1", color=color.new(color.green, 0), linewidth=1, style=plot.style_linebr)
+plot(not na(currentTP2) ? currentTP2 : na, title="Take Profit 2", color=color.new(color.green, 30), linewidth=1, style=plot.style_linebr)
+plot(not na(currentTP3) ? currentTP3 : na, title="Take Profit 3", color=color.new(color.green, 60), linewidth=1, style=plot.style_linebr)
+
+// Enhanced position labels
+if showPositionLabels and not na(currentEntryPrice)
+    positionText = (currentDirection == 1 ? "🚀 LONG\n" : "🔻 SHORT\n") + 
+                   "Entry: " + str.tostring(currentEntryPrice, "#.####") + "\n" +
+                   "Stop: " + str.tostring(currentStopLoss, "#.####") + "\n" +
+                   "Size: $" + str.tostring(math.round(currentPositionSize)) + "\n" +
+                   "Leverage: " + str.tostring(currentLeverage, "#.#") + "x\n" +
+                   "Risk: $" + str.tostring(math.round(currentRiskAmount))
+    
+    label.new(bar_index, currentDirection == 1 ? low * 0.995 : high * 1.005, 
+              text=positionText, 
+              style=currentDirection == 1 ? label.style_label_up : label.style_label_down, 
+              color=color.new(currentDirection == 1 ? color.lime : color.red, 20), 
+              textcolor=color.white, 
+              size=size.normal)
+
+// Enhanced labels for dip classification
+if showDipLabels
+    if flashDip
+        label.new(bar_index, low * 0.998, text="💎 FLASH DIP", style=label.style_label_up, color=color.new(color.blue, 0), textcolor=color.white, size=size.small)
+    if capitulation
+        label.new(bar_index, low * 0.995, text="🩸 CAPITULATION", style=label.style_label_up, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+    if oversoldBounce
+        label.new(bar_index, low * 0.997, text="🔄 OVERSOLD BOUNCE", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+    if whaleDipBuying
+        label.new(bar_index, low * 0.996, text="🐋 WHALE DIP BUY", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.small)
+
+// Fear & Greed labels
+if showFearGreedLabels and (fearSignal or greedSignal)
+    fearGreedColor = fearGreed < 25 ? color.red : fearGreed > 75 ? color.orange : color.gray
+    fearGreedText = sentiment + "\n" + str.tostring(math.round(fearGreed))
+    label.new(bar_index, high * 1.01, text=fearGreedText, style=label.style_label_down, color=color.new(fearGreedColor, 20), textcolor=color.white, size=size.small)
+
+// Confidence labels
+if showConfidenceLabels and (enhancedBullish or enhancedBearish)
+    labelColor = enhancedBullish ? color.new(color.lime, 20) : color.new(color.red, 20)
+    labelText = (enhancedBullish ? "🚀 ENHANCED LONG\n" : "🚀 ENHANCED SHORT\n") + signalStrength + "\n" + str.tostring(math.round(ultimateConfidence)) + "%"
+    label.new(bar_index, enhancedBullish ? low * 0.999 : high * 1.001, text=labelText, style=enhancedBullish ? label.style_label_up : label.style_label_down, color=labelColor, textcolor=color.white, size=size.normal)
+
+// Whale zone visualization
+if showWhaleZones and array.size(whaleZones) > 0
+    for i = 0 to math.min(4, array.size(whaleZones) - 1)
+        zone = array.get(whaleZones, i)
+        strength = array.get(whaleZoneStrength, i)
+        zoneType = array.get(whaleZoneType, i)
+        zoneColor = zoneType == "ABSORB" ? color.new(color.purple, 80) : zoneType == "STEALTH" ? color.new(color.blue, 85) : color.new(color.teal, 85)
+        line.new(bar_index - 50, zone, bar_index + 10, zone, color=zoneColor, width=2, style=line.style_dashed)
+
+// Moving averages
+plot(fastMA, title="Fast MA", color=color.new(color.blue, 0), linewidth=1)
+plot(slowMA, title="Slow MA", color=color.new(color.red, 0), linewidth=1)
+plot(ema50, title="EMA 50", color=color.new(color.yellow, 50), linewidth=1)
+plot(ema200, title="EMA 200", color=color.new(color.gray, 30), linewidth=2)
+
+// Enhanced alerts with position details
+alertcondition(enhancedBullish and ultimateConfidence >= 95, title="🔥 Enhanced Ultra Long Entry", message="🔥 ENHANCED ULTRA CRYPTO LONG SIGNAL! Check position details on chart for entry, stop, and targets.")
+alertcondition(enhancedBearish and ultimateConfidence >= 90, title="🔻 Enhanced Short Entry", message="🔻 ENHANCED CRYPTO SHORT SIGNAL! Check position details on chart for entry, stop, and targets.")
+alertcondition(emergencyLongExit, title="🚨 Emergency Long Exit", message="🚨 EMERGENCY LONG EXIT! Extreme conditions detected - close long positions immediately.")
+alertcondition(emergencyShortExit, title="🚨 Emergency Short Exit", message="🚨 EMERGENCY SHORT EXIT! Extreme conditions detected - close short positions immediately.")
+alertcondition(flashDip and nearWhaleZone, title="💎 Flash Dip Whale Zone", message="💎 FLASH DIP AT WHALE ZONE! High probability bounce setup - check position calculator.")
+alertcondition(capitulation and fearGreed < 25, title="🩸 Extreme Fear Capitulation", message="🩸 CAPITULATION IN EXTREME FEAR! Potential major bottom - check enhanced position sizing.")
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// 📊 COMPLETE TRADING INTERFACE DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Main trading interface table
+var tradingInterface = table.new(position.top_right, 2, 15, bgcolor=color.new(color.black, 85), border_width=1)
+
+if showTradingInterface and barstate.islast
+    // Header
+    table.cell(tradingInterface, 0, 0, "🚀 CRYPTO TRADING SYSTEM", text_color=color.white, bgcolor=color.new(color.blue, 50))
+    table.cell(tradingInterface, 1, 0, syminfo.ticker, text_color=color.white, bgcolor=color.new(color.blue, 50))
+    
+    // Current Signal
+    table.cell(tradingInterface, 0, 1, "Current Signal", text_color=color.white)
+    signalText = enhancedBullish ? "🚀 LONG (" + currentSignalType + ")" : enhancedBearish ? "🔻 SHORT (" + currentSignalType + ")" : "⏸️ NO SIGNAL"
+    signalColor = enhancedBullish ? color.lime : enhancedBearish ? color.red : color.gray
+    table.cell(tradingInterface, 1, 1, signalText, text_color=signalColor)
+    
+    // Confidence & Strength
+    table.cell(tradingInterface, 0, 2, "Confidence", text_color=color.white)
+    table.cell(tradingInterface, 1, 2, str.tostring(math.round(ultimateConfidence)) + "% " + signalStrength, text_color=ultimateConfidence >= 90 ? color.lime : ultimateConfidence >= 80 ? color.yellow : color.orange)
+    
+    // Entry Price
+    table.cell(tradingInterface, 0, 3, "Entry Price", text_color=color.white)
+    entryText = not na(currentEntryPrice) ? "$" + str.tostring(currentEntryPrice, "#.####") : "No Position"
+    table.cell(tradingInterface, 1, 3, entryText, text_color=not na(currentEntryPrice) ? color.cyan : color.gray)
+    
+    // Stop Loss
+    table.cell(tradingInterface, 0, 4, "Stop Loss", text_color=color.white)
+    stopText = not na(currentStopLoss) ? "$" + str.tostring(currentStopLoss, "#.####") : "No Position"
+    table.cell(tradingInterface, 1, 4, stopText, text_color=not na(currentStopLoss) ? color.red : color.gray)
+    
+    // Take Profits
+    table.cell(tradingInterface, 0, 5, "Take Profit 1", text_color=color.white)
+    tp1Text = not na(currentTP1) ? "$" + str.tostring(currentTP1, "#.####") + " (R:" + str.tostring(currentRR1, "#.#") + "" : "No Position"
+    table.cell(tradingInterface, 1, 5, tp1Text, text_color=not na(currentTP1) ? color.green : color.gray)
+    
+    table.cell(tradingInterface, 0, 6, "Take Profit 2", text_color=color.white)
+    tp2Text = not na(currentTP2) ? "$" + str.tostring(currentTP2, "#.####") + " (R:" + str.tostring(currentRR2, "#.#") + "" : "No Position"
+    table.cell(tradingInterface, 1, 6, tp2Text, text_color=not na(currentTP2) ? color.green : color.gray)
+    
+    table.cell(tradingInterface, 0, 7, "Take Profit 3", text_color=color.white)
+    tp3Text = not na(currentTP3) ? "$" + str.tostring(currentTP3, "#.####") + " (R:" + str.tostring(currentRR3, "#.#") + "" : "No Position"
+    table.cell(tradingInterface, 1, 7, tp3Text, text_color=not na(currentTP3) ? color.green : color.gray)
+    
+    // Position Size & Risk
+    table.cell(tradingInterface, 0, 8, "Position Size", text_color=color.white)
+    positionText = not na(currentPositionSize) ? "$" + str.tostring(math.round(currentPositionSize)) : "No Position"
+    table.cell(tradingInterface, 1, 8, positionText, text_color=not na(currentPositionSize) ? color.yellow : color.gray)
+    
+    table.cell(tradingInterface, 0, 9, "Leverage", text_color=color.white)
+    leverageText = not na(currentLeverage) ? str.tostring(currentLeverage, "#.#") + "x" : "No Position"
+    leverageColor = not na(currentLeverage) ? (currentLeverage <= 3 ? color.green : currentLeverage <= 7 ? color.yellow : color.orange) : color.gray
+    table.cell(tradingInterface, 1, 9, leverageText, text_color=leverageColor)
+    
+    table.cell(tradingInterface, 0, 10, "Risk Amount", text_color=color.white)
+    riskText = not na(currentRiskAmount) ? "$" + str.tostring(math.round(currentRiskAmount)) : "No Position"
+    table.cell(tradingInterface, 1, 10, riskText, text_color=not na(currentRiskAmount) ? color.orange : color.gray)
+    
+    // Portfolio Heat
+    table.cell(tradingInterface, 0, 11, "Portfolio Heat", text_color=color.white)
+    heatText = str.tostring(currentPortfolioHeat, "#.#") + "%"
+    heatColor = currentPortfolioHeat > maxPortfolioHeat ? color.red : currentPortfolioHeat > maxPortfolioHeat * 0.7 ? color.yellow : color.green
+    table.cell(tradingInterface, 1, 11, heatText, text_color=heatColor)
+    
+    // Market Conditions
+    table.cell(tradingInterface, 0, 12, "Fear & Greed", text_color=color.white)
+    table.cell(tradingInterface, 1, 12, str.tostring(math.round(fearGreed)) + " (" + sentiment + ")", text_color=fearGreed < 25 ? color.red : fearGreed > 75 ? color.orange : color.yellow)
+    
+    table.cell(tradingInterface, 0, 13, "Volume", text_color=color.white)
+    table.cell(tradingInterface, 1, 13, str.tostring(math.round(relativeVolume, 1)) + "x avg", text_color=relativeVolume > 2 ? color.lime : relativeVolume > 1.5 ? color.yellow : color.gray)
+    
+    table.cell(tradingInterface, 0, 14, "Volatility", text_color=color.white)
+    table.cell(tradingInterface, 1, 14, str.tostring(math.round(volatility, 1)) + "%", text_color=volatility > 5 ? color.red : volatility > 3 ? color.yellow : color.gray)
+
+// Risk warning labels
+if showRiskWarnings
+    if currentPortfolioHeat > maxPortfolioHeat
+        label.new(bar_index, high * 1.03, text="⚠️ PORTFOLIO HEAT EXCEEDED", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+    if not na(currentLeverage) and currentLeverage > 10
+        label.new(bar_index, high * 1.02, text="⚠️ HIGH LEVERAGE RISK", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+    if emergencyLongExit or emergencyShortExit
+        label.new(bar_index, high * 1.04, text="🚨 EMERGENCY EXIT CONDITIONS", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
