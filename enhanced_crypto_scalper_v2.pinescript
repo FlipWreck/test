@@ -1,0 +1,37 @@
+//@version=5
+strategy("Enhanced Crypto Scalper V2", overlay=true)
+
+// Input parameters
+riskRewardRatio = input(2.0, title="Risk/Reward Ratio")
+stopLossPercentage = input(1.0, title="Stop Loss Percentage", minval=0.1, step=0.1)
+
+// Indicators
+maLength = input(14, title="Moving Average Length")
+ma = ta.sma(close, maLength)
+
+rsiPeriod = input(14, title="RSI Period")
+rsi = ta.rsi(close, rsiPeriod)
+
+// Conditions for entry
+longCondition = ta.crossover(close, ma) and rsi < 30
+shortCondition = ta.crossunder(close, ma) and rsi > 70
+
+// Execute trades
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+    stopLossPrice = close * (1 - stopLossPercentage / 100)
+    takeProfitPrice = close * (1 + (stopLossPercentage / 100) * riskRewardRatio)
+    strategy.exit("Take Profit/Stop Loss", "Long", stop=stopLossPrice, limit=takeProfitPrice)
+
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+    stopLossPrice = close * (1 + stopLossPercentage / 100)
+    takeProfitPrice = close * (1 - (stopLossPercentage / 100) * riskRewardRatio)
+    strategy.exit("Take Profit/Stop Loss", "Short", stop=stopLossPrice, limit=takeProfitPrice)
+
+// Information Panel
+var label infoLabel = na
+if (na(infoLabel))
+    infoLabel := label.new(bar_index, high, "", color=color.new(color.black, 0), style=label.style_label_down)
+label.set_xy(infoLabel, bar_index, high)
+label.set_text(infoLabel, "Last Trade: " + str.tostring(strategy.closedtrades) + "\nCurrent Equity: " + str.tostring(strategy.equity))
