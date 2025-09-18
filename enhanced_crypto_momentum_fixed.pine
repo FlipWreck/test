@@ -846,6 +846,17 @@ calculatePositionSize(direction, entryPrice, stopPrice) =>
 // 💰 ENHANCED POSITION MANAGEMENT SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
+// --- Setup/active position state machine ---
+var float plannedEntryPrice = na
+var int setupBarIndex = na
+var bool entryActive = false
+var int entryDirection = na
+var float tradeEntryPrice = na
+var float plannedStopLoss = na
+var float plannedTP1 = na
+var float plannedTP2 = na
+var float plannedTP3 = na
+var string plannedSignalType = na
 var float currentEntryPrice = na
 var float currentStopLoss = na
 var float currentTP1 = na
@@ -854,53 +865,93 @@ var float currentTP3 = na
 var float currentPositionSize = na
 var float currentLeverage = na
 var float currentRiskAmount = na
-var int currentDirection = 0
-var string activeSignalType = ""
+var int currentDirection = na
+var string activeSignalType = na
 
-// Enhanced signal entry logic
-if aiLongSignal and na(currentEntryPrice)
-    currentEntryPrice := close
-    currentDirection := 1
-    currentStopLoss := calculateStopLoss(1, currentEntryPrice)
-    [calcTP1, calcTP2, calcTP3] = calculateTakeProfits(1, currentEntryPrice, currentStopLoss)
-    currentTP1 := calcTP1
-    currentTP2 := calcTP2
-    currentTP3 := calcTP3
-    [posSize, lev, riskAmt, stopDist] = calculatePositionSize(1, currentEntryPrice, currentStopLoss)
-    currentPositionSize := posSize
-    currentLeverage := lev
-    currentRiskAmount := riskAmt
-    activeSignalType := finalStrategy
+entryTimeoutBars = input.int(12, "Entry Expiry Bars")
 
-if aiShortSignal and na(currentEntryPrice)
-    currentEntryPrice := close
-    currentDirection := -1
-    currentStopLoss := calculateStopLoss(-1, currentEntryPrice)
-    [calcTP1, calcTP2, calcTP3] = calculateTakeProfits(-1, currentEntryPrice, currentStopLoss)
-    currentTP1 := calcTP1
-    currentTP2 := calcTP2
-    currentTP3 := calcTP3
-    [posSize, lev, riskAmt, stopDist] = calculatePositionSize(-1, currentEntryPrice, currentStopLoss)
-    currentPositionSize := posSize
-    currentLeverage := lev
-    currentRiskAmount := riskAmt
-    activeSignalType := finalStrategy
+// -- Detect new setup (visualizes planned entry/TP/SL, but does not open position) --
+setupSignal = aiLongSignal or aiShortSignal
+plannedLong  = aiLongSignal and na(plannedEntryPrice)
+plannedShort = aiShortSignal and na(plannedEntryPrice)
 
-// Enhanced exit conditions - less harsh
-emergencyLongExit = rsi < 10 or (close < ema_trend * 0.96 and longTermTrend == -1)  // ENHANCED
-emergencyShortExit = rsi > 90 or (close > ema_trend * 1.04 and longTermTrend == 1)  // ENHANCED
+if plannedLong or plannedShort
+    plannedEntryPrice := close
+    entryDirection := plannedLong ? 1 : -1
+    setupBarIndex := bar_index
+    entryActive := false
+    tradeEntryPrice := na
+    plannedStopLoss := calculateStopLoss(entryDirection, plannedEntryPrice)
+    [plannedTP1, plannedTP2, plannedTP3] = calculateTakeProfits(entryDirection, plannedEntryPrice, plannedStopLoss)
+    plannedSignalType := finalStrategy
 
-if not na(currentEntryPrice) and currentDirection == 1 and (close <= currentStopLoss or emergencyLongExit)
+// -- Confirm entry: only activate trade if entry is touched/crossed --
+entryTriggered = false
+if not entryActive and not na(plannedEntryPrice)
+    entryTriggered := (entryDirection == 1 and close >= plannedEntryPrice) or (entryDirection == -1 and close <= plannedEntryPrice)
+    if entryTriggered
+        entryActive := true
+        tradeEntryPrice := plannedEntryPrice
+        currentEntryPrice := tradeEntryPrice
+        currentDirection := entryDirection
+        currentStopLoss := plannedStopLoss
+        currentTP1 := plannedTP1
+        currentTP2 := plannedTP2
+        currentTP3 := plannedTP3
+        [currentPositionSize, currentLeverage, currentRiskAmount, _] = calculatePositionSize(currentDirection, currentEntryPrice, currentStopLoss)
+        activeSignalType := plannedSignalType
+
+// -- Expire setup if not triggered within N bars --
+if not entryActive and not na(setupBarIndex) and (bar_index - setupBarIndex) > entryTimeoutBars
+    plannedEntryPrice := na
+    setupBarIndex := na
+    entryDirection := na
+    plannedStopLoss := na
+    plannedTP1 := na
+    plannedTP2 := na
+    plannedTP3 := na
+    plannedSignalType := na
+
+// -- Close/reset active trade on stop/exit or emergency --
+emergencyLongExit = rsi < 10 or (close < ema_trend * 0.96 and longTermTrend == -1)
+emergencyShortExit = rsi > 90 or (close > ema_trend * 1.04 and longTermTrend == 1)
+closeActive = (entryActive and ((currentDirection == 1 and (close <= currentStopLoss or emergencyLongExit)) or(currentDirection == -1 and (close >= currentStopLoss or emergencyShortExit))))
+if closeActive
+    plannedEntryPrice := na
+    setupBarIndex := na
+    entryDirection := na
+    plannedStopLoss := na
+    plannedTP1 := na
+    plannedTP2 := na
+    plannedTP3 := na
+    plannedSignalType := na
+    entryActive := false
+    tradeEntryPrice := na
     currentEntryPrice := na
-    currentDirection := 0
-    activeSignalType := ""
+    currentStopLoss := na
+    currentTP1 := na
+    currentTP2 := na
+    currentTP3 := na
+    currentPositionSize := na
+    currentLeverage := na
+    currentRiskAmount := na
+    currentDirection := na
+    activeSignalType := na
 
-if not na(currentEntryPrice) and currentDirection == -1 and (close >= currentStopLoss or emergencyShortExit)
-    currentEntryPrice := na
-    currentDirection := 0
-    activeSignalType := ""
+// --- Plot planned setup (when setup exists but not yet triggered) ---
+plot(not na(plannedEntryPrice) and not entryActive ? plannedEntryPrice : na, color=color.yellow, style=plot.style_line, linewidth=2, title="Planned Entry")
+plot(not na(plannedStopLoss) and not entryActive ? plannedStopLoss : na, color=color.red, style=plot.style_line, linewidth=1, title="Planned Stop Loss")
+plot(not na(plannedTP1) and not entryActive ? plannedTP1 : na, color=color.teal, style=plot.style_circles, linewidth=1, title="Planned TP1")
+plot(not na(plannedTP2) and not entryActive ? plannedTP2 : na, color=color.teal, style=plot.style_circles, linewidth=1, title="Planned TP2")
+plot(not na(plannedTP3) and not entryActive ? plannedTP3 : na, color=color.teal, style=plot.style_circles, linewidth=1, title="Planned TP3")
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// --- Plot active trade (once entry is triggered) ---
+plot(entryActive ? currentEntryPrice : na, color=color.green, style=plot.style_line, linewidth=2, title="Active Entry")
+plot(entryActive ? currentStopLoss : na, color=color.red, style=plot.style_line, linewidth=2, title="Active Stop Loss")
+plot(entryActive ? currentTP1 : na, color=color.aqua, style=plot.style_circles, linewidth=2, title="Active TP1")
+plot(entryActive ? currentTP2 : na, color=color.aqua, style=plot.style_circles, linewidth=2, title="Active TP2")
+plot(entryActive ? currentTP3 : na, color=color.aqua, style=plot.style_circles, linewidth=2, title="Active TP3")
+//═════════════════════════════════════════════════════════════════════════════════
 // 📊 FIXED ENHANCED TRADING INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
