@@ -842,11 +842,11 @@ calculatePositionSize(direction, entryPrice, stopPrice) =>
     
     [adjustedPositionSize, leverage, adjustedRiskAmount, stopDistance]
 
-// ════════════════════════════════════════════════════════════════[...]
-// 💰 FIXED ENHANCED POSITION MANAGEMENT SYSTEM
-// ════════════════════════════════════════════════════════════════[...]
+// ════════════════════════════════════════════════════════════════
+// 💰 ENHANCED POSITION MANAGEMENT SYSTEM
+// ════════════════════════════════════════════════════════════════
 
-// --- Setup/active position state machine - FIXED ENTRY LOGIC ---
+// Position state variables
 var float plannedEntryPrice = na
 var int setupBarIndex = na
 var bool entryActive = false
@@ -868,22 +868,27 @@ var float currentRiskAmount = na
 var int currentDirection = na
 var string activeSignalType = na
 
-entryTimeoutBars = input.int(5, "Entry Expiry Bars", minval=2, maxval=20)  // Reduced timeout
+entryTimeoutBars = input.int(5, "Entry Expiry Bars", minval=2, maxval=20)
+useImmediateEntry = input.bool(true, "Use Immediate Entry", tooltip="Execute trades immediately instead of waiting for price levels")
 
-// -- FIXED: Detect new setup with realistic entry prices --
+// Enhanced setup detection with proper conditions
 setupSignal = aiLongSignal or aiShortSignal
-plannedLong  = aiLongSignal and na(plannedEntryPrice)
-plannedShort = aiShortSignal and na(plannedEntryPrice)
+plannedLong  = aiLongSignal and na(plannedEntryPrice) and not entryActive
+plannedShort = aiShortSignal and na(plannedEntryPrice) and not entryActive
 
 if plannedLong or plannedShort
-    // FIXED: Set more realistic entry prices that can actually be reached
     entryDirection := plannedLong ? 1 : -1
     
-    // Use slightly better prices that are more likely to be hit
-    entryBuffer = atr * 0.1  // Small buffer for realistic entry
-    plannedEntryPrice := entryDirection == 1 ? 
-                         math.min(close + entryBuffer, high + (atr * 0.05)) :  // Long: slightly above current or near high
-                         math.max(close - entryBuffer, low - (atr * 0.05))     // Short: slightly below current or near low
+    // FIXED: Better entry price logic
+    entryBuffer = atr * 0.05
+    
+    if useImmediateEntry
+        plannedEntryPrice := close  // Immediate entry at current price
+    else
+        // Set entry levels that are more likely to be hit
+        plannedEntryPrice := entryDirection == 1 ? 
+                             close + entryBuffer :  // Long: slightly above current
+                             close - entryBuffer   // Short: slightly below current
     
     setupBarIndex := bar_index
     entryActive := false
@@ -892,31 +897,34 @@ if plannedLong or plannedShort
     [plannedTP1, plannedTP2, plannedTP3] = calculateTakeProfits(entryDirection, plannedEntryPrice, plannedStopLoss)
     plannedSignalType := finalStrategy
 
-// -- FIXED: More realistic entry triggering logic --
+// Enhanced entry triggering logic
 entryTriggered = false
 if not entryActive and not na(plannedEntryPrice)
-    // FIXED: Use proper price range checking for entry triggers
-    if entryDirection == 1
-        // Long entry: triggered when price reaches or exceeds planned entry within the bar's range
-        entryTriggered := high >= plannedEntryPrice
+    if useImmediateEntry
+        // Immediate entry mode
+        entryTriggered := true
+        tradeEntryPrice := close
     else
-        // Short entry: triggered when price reaches or falls below planned entry within the bar's range  
-        entryTriggered := low <= plannedEntryPrice
+        // Wait for price to reach planned entry
+        if entryDirection == 1
+            entryTriggered := high >= plannedEntryPrice
+            tradeEntryPrice := plannedEntryPrice
+        else
+            entryTriggered := low <= plannedEntryPrice
+            tradeEntryPrice := plannedEntryPrice
         
     if entryTriggered
         entryActive := true
-        tradeEntryPrice := plannedEntryPrice  // Use planned price
         currentEntryPrice := tradeEntryPrice
         currentDirection := entryDirection
-        currentStopLoss := plannedStopLoss
-        currentTP1 := plannedTP1
-        currentTP2 := plannedTP2
-        currentTP3 := plannedTP3
+        // Recalculate levels based on actual entry price
+        currentStopLoss := calculateStopLoss(currentDirection, currentEntryPrice)
+        [currentTP1, currentTP2, currentTP3] = calculateTakeProfits(currentDirection, currentEntryPrice, currentStopLoss)
         [currentPositionSize, currentLeverage, currentRiskAmount, _] = calculatePositionSize(currentDirection, currentEntryPrice, currentStopLoss)
         activeSignalType := plannedSignalType
 
-// -- Expire setup if not triggered within N bars --
-if not entryActive and not na(setupBarIndex) and (bar_index - setupBarIndex) > entryTimeoutBars
+// Setup expiry logic
+if not entryActive and not na(setupBarIndex) and (bar_index - setupBarIndex) > entryTimeoutBars and not useImmediateEntry
     plannedEntryPrice := na
     setupBarIndex := na
     entryDirection := na
@@ -926,28 +934,46 @@ if not entryActive and not na(setupBarIndex) and (bar_index - setupBarIndex) > e
     plannedTP3 := na
     plannedSignalType := na
 
-// -- FIXED: Improved exit logic --
-emergencyLongExit = rsi < 15 or (close < ema_trend * 0.95 and longTermTrend == -1)
-emergencyShortExit = rsi > 85 or (close > ema_trend * 1.05 and longTermTrend == 1)
+// Enhanced exit conditions
+exitCondition = false
+exitReason = ""
 
-// Enhanced exit conditions with TP hits
-tpHit = false
 if entryActive
-    if currentDirection == 1  // Long position
+    // Stop loss hit
+    stopHit = currentDirection == 1 ? low <= currentStopLoss : high >= currentStopLoss
+    
+    // Take profit hit (any TP level)
+    tpHit = false
+    if currentDirection == 1
         tpHit := high >= currentTP1 or high >= currentTP2 or high >= currentTP3
-    else  // Short position
+    else
         tpHit := low <= currentTP1 or low <= currentTP2 or low <= currentTP3
+    
+    // Emergency exits
+    emergencyLongExit = rsi < 15 or (close < ema_trend * 0.95 and longTermTrend == -1)
+    emergencyShortExit = rsi > 85 or (close > ema_trend * 1.05 and longTermTrend == 1)
+    emergencyExit = (currentDirection == 1 and emergencyLongExit) or (currentDirection == -1 and emergencyShortExit)
+    
+    // Time-based exit
+    maxHoldBars = input.int(50, "Max Hold Bars", minval=10, maxval=200)
+    timeExit = (bar_index - setupBarIndex) > maxHoldBars
+    
+    // Determine exit condition and reason
+    if stopHit
+        exitCondition := true
+        exitReason := "Stop Loss Hit"
+    else if tpHit
+        exitCondition := true
+        exitReason := "Take Profit Hit"
+    else if emergencyExit
+        exitCondition := true
+        exitReason := "Emergency Exit"
+    else if timeExit
+        exitCondition := true
+        exitReason := "Time Exit"
 
-stopHit = false
-if entryActive
-    if currentDirection == 1  // Long position
-        stopHit := low <= currentStopLoss
-    else  // Short position
-        stopHit := high >= currentStopLoss
-
-closeActive = entryActive and (stopHit or emergencyLongExit or emergencyShortExit or tpHit)
-
-if closeActive
+// Reset all variables on exit
+if exitCondition
     plannedEntryPrice := na
     setupBarIndex := na
     entryDirection := na
@@ -969,131 +995,148 @@ if closeActive
     currentDirection := na
     activeSignalType := na
 
-// ════════════════════════════════════════════════════════════════[...]
-// 📊 FIXED ENHANCED VISUAL PLOTTING
-// ════════════════════════════════════════════════════════════════[...]
+// ════════════════════════════════════════════════════════════════
+// 📊 ENHANCED VISUAL PLOTTING
+// ════════════════════════════════════════════════════════════════
 
-// --- Plot planned setup (when setup exists but not yet triggered) ---
-plot(not na(plannedEntryPrice) and not entryActive ? plannedEntryPrice : na, color=color.new(color.yellow, 0), style=plot.style_line, linewidth=2, title="Planned Entry")
-plot(not na(plannedStopLoss) and not entryActive ? plannedStopLoss : na, color=color.new(color.red, 20), style=plot.style_line, linewidth=1, title="Planned Stop Loss")
-plot(not na(plannedTP1) and not entryActive ? plannedTP1 : na, color=color.new(color.teal, 30), style=plot.style_circles, linewidth=1, title="Planned TP1")
-plot(not na(plannedTP2) and not entryActive ? plannedTP2 : na, color=color.new(color.teal, 50), style=plot.style_circles, linewidth=1, title="Planned TP2")
-plot(not na(plannedTP3) and not entryActive ? plannedTP3 : na, color=color.new(color.teal, 70), style=plot.style_circles, linewidth=1, title="Planned TP3")
+// Plot planned setup (yellow/orange for pending)
+plot(not na(plannedEntryPrice) and not entryActive ? plannedEntryPrice : na, 
+     color=color.new(color.yellow, 0), style=plot.style_line, linewidth=2, title="Planned Entry")
+plot(not na(plannedStopLoss) and not entryActive ? plannedStopLoss : na, 
+     color=color.new(color.red, 30), style=plot.style_line, linewidth=1, title="Planned Stop Loss")
+plot(not na(plannedTP1) and not entryActive ? plannedTP1 : na, 
+     color=color.new(color.green, 30), style=plot.style_circles, linewidth=1, title="Planned TP1")
+plot(not na(plannedTP2) and not entryActive ? plannedTP2 : na, 
+     color=color.new(color.green, 50), style=plot.style_circles, linewidth=1, title="Planned TP2")
+plot(not na(plannedTP3) and not entryActive ? plannedTP3 : na, 
+     color=color.new(color.green, 70), style=plot.style_circles, linewidth=1, title="Planned TP3")
 
-// --- Plot active trade (once entry is triggered) ---
-plot(entryActive ? currentEntryPrice : na, color=color.new(color.lime, 0), style=plot.style_line, linewidth=3, title="Active Entry")
-plot(entryActive ? currentStopLoss : na, color=color.new(color.red, 0), style=plot.style_line, linewidth=2, title="Active Stop Loss")
-plot(entryActive ? currentTP1 : na, color=color.new(color.aqua, 0), style=plot.style_circles, linewidth=2, title="Active TP1")
-plot(entryActive ? currentTP2 : na, color=color.new(color.aqua, 20), style=plot.style_circles, linewidth=2, title="Active TP2")
-plot(entryActive ? currentTP3 : na, color=color.new(color.aqua, 40), style=plot.style_circles, linewidth=2, title="Active TP3")
+// Plot active trade (bright colors for live positions)
+plot(entryActive ? currentEntryPrice : na, 
+     color=color.new(color.blue, 0), style=plot.style_line, linewidth=3, title="Active Entry")
+plot(entryActive ? currentStopLoss : na, 
+     color=color.new(color.red, 0), style=plot.style_line, linewidth=2, title="Active Stop Loss")
+plot(entryActive ? currentTP1 : na, 
+     color=color.new(color.lime, 0), style=plot.style_line, linewidth=2, title="Active TP1")
+plot(entryActive ? currentTP2 : na, 
+     color=color.new(color.lime, 20), style=plot.style_line, linewidth=2, title="Active TP2")
+plot(entryActive ? currentTP3 : na, 
+     color=color.new(color.lime, 40), style=plot.style_line, linewidth=2, title="Active TP3")
 
-// Enhanced signal arrows with better visibility
-plotshape(aiLongSignal and not entryActive, style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.normal, title="AI Long Signal")
-plotshape(aiShortSignal and not entryActive, style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.normal, title="AI Short Signal")
+// Enhanced signal arrows
+plotshape(aiLongSignal and not entryActive, style=shape.triangleup, location=location.belowbar, 
+          color=color.new(color.lime, 0), size=size.normal, title="AI Long Signal")
+plotshape(aiShortSignal and not entryActive, style=shape.triangledown, location=location.abovebar, 
+          color=color.new(color.red, 0), size=size.normal, title="AI Short Signal")
 
-// Entry confirmation markers
-plotshape(entryTriggered and currentDirection == 1, style=shape.circle, location=location.belowbar, color=color.new(color.green, 0), size=size.small, title="Long Entry Triggered")
-plotshape(entryTriggered and currentDirection == -1, style=shape.circle, location=location.abovebar, color=color.new(color.maroon, 0), size=size.small, title="Short Entry Triggered")
+// Entry/Exit confirmation markers
+plotshape(entryTriggered and currentDirection == 1, style=shape.circle, location=location.belowbar, 
+          color=color.new(color.green, 0), size=size.small, title="Long Entry Triggered")
+plotshape(entryTriggered and currentDirection == -1, style=shape.circle, location=location.abovebar, 
+          color=color.new(color.maroon, 0), size=size.small, title="Short Entry Triggered")
+plotshape(exitCondition, style=shape.xcross, location=location.absolute, 
+          color=color.new(color.orange, 0), size=size.normal, title="Position Exit")
 
-//════════════════════════════════════════════════════════════════�[...]
-// 📊 FIXED ENHANCED TRADING INTERFACE
-// ════════════════════════════════════════════════════════════════[...]
-
-var tradingInterface = table.new(position.top_right, 2, 40, bgcolor=color.new(color.black, 85), border_width=1)
+// ════════════════════════════════════════════════════════════════
+// 📋 ENHANCED TRADING DASHBOARD
+// ════════════════════════════════════════════════════════════════
 
 if showAIDecisions and barstate.islast
-    tradingInterface := table.new(position.top_right, 2, 40, bgcolor=color.new(color.black, 85), border_width=1)
+    var table tradingInterface = table.new(position.top_right, 2, 50, bgcolor=color.new(color.black, 85), border_width=1)
     
-    // Header
-    table.cell(tradingInterface, 0, 0, "🔥 SUPER AI TRADING", text_color=color.white, bgcolor=color.new(color.purple, 50))
-    table.cell(tradingInterface, 1, 0, syminfo.ticker + " ULTRA SENSITIVE", text_color=color.white, bgcolor=color.new(color.purple, 50))
+    // Header section
+    table.cell(tradingInterface, 0, 0, "🔥 AI TRADING SYSTEM", text_color=color.white, bgcolor=color.new(color.purple, 50))
+    table.cell(tradingInterface, 1, 0, syminfo.ticker + " ENHANCED", text_color=color.white, bgcolor=color.new(color.purple, 50))
     
-    // Position Status
+    // Position status
     table.cell(tradingInterface, 0, 1, "📊 Position Status", text_color=color.white)
     positionStatus = entryActive ? (currentDirection == 1 ? "🚀 LONG ACTIVE" : "🔻 SHORT ACTIVE") : 
-                     not na(plannedEntryPrice) ? "⏳ SETUP PENDING" : "⏸️ NO POSITION"
+                     not na(plannedEntryPrice) ? "⏳ SETUP PENDING" : "⚪ NO POSITION"
     positionColor = entryActive ? (currentDirection == 1 ? color.lime : color.red) : not na(plannedEntryPrice) ? color.yellow : color.gray
     table.cell(tradingInterface, 1, 1, positionStatus, text_color=positionColor)
     
-    // AI Strategy Info
-    table.cell(tradingInterface, 0, 2, "🎯 AI Strategy", text_color=color.white)
+    // AI Strategy information
+    table.cell(tradingInterface, 0, 2, "🎯 Strategy", text_color=color.white)
     strategyColor = aiConfidence >= 80 ? color.lime : aiConfidence >= 65 ? color.yellow : color.orange
     table.cell(tradingInterface, 1, 2, finalStrategy, text_color=strategyColor)
     
-    table.cell(tradingInterface, 0, 3, "🧠 AI Confidence", text_color=color.white)
+    table.cell(tradingInterface, 0, 3, "🧠 Confidence", text_color=color.white)
     confidenceText = str.tostring(aiConfidence, "#") + "%" + (enableAggressiveMode ? " 🔥" : "")
-    confidenceColor = aiConfidence >= 80 ? color.lime : aiConfidence >= 65 ? color.yellow : aiConfidence >= 50 ? color.orange : color.red
+    confidenceColor = aiConfidence >= 80 ? color.lime : aiConfidence >= 65 ? color.yellow : 
+                      aiConfidence >= 50 ? color.orange : color.red
     table.cell(tradingInterface, 1, 3, confidenceText, text_color=confidenceColor)
     
-    table.cell(tradingInterface, 0, 4, "🌊 Market Condition", text_color=color.white)
+    table.cell(tradingInterface, 0, 4, "🌊 Market", text_color=color.white)
     table.cell(tradingInterface, 1, 4, currentMarketCondition, text_color=color.navy)
     
-    // Current Signals
-    table.cell(tradingInterface, 0, 5, "📶 Current Signals", text_color=color.white)
-// signal summary
-string currentSignal = aiLongSignal ? "🟢 LONG SIGNAL" : aiShortSignal ? "🔴 SHORT SIGNAL" : "⚪ NO SIGNAL"
-color signalColor = aiLongSignal ? color.lime : aiShortSignal ? color.red : color.gray
-table.cell(tradingInterface, 1, 5, currentSignal, text_color=signalColor)
-
-// Planned Setup Details (if setup exists but not triggered)
-if not na(plannedEntryPrice) and not entryActive
-    table.cell(tradingInterface, 0, 6, "⏳ SETUP DETAILS", text_color=color.white, bgcolor=color.new(color.orange, 70))
-    table.cell(tradingInterface, 1, 6, "PENDING ENTRY", text_color=color.white, bgcolor=color.new(color.orange, 70))
+    // Current signals
+    table.cell(tradingInterface, 0, 5, "📶 Signal", text_color=color.white)
+    currentSignal = aiLongSignal ? "🟢 LONG" : aiShortSignal ? "🔴 SHORT" : "⚪ NONE"
+    signalColor = aiLongSignal ? color.lime : aiShortSignal ? color.red : color.gray
+    table.cell(tradingInterface, 1, 5, currentSignal, text_color=signalColor)
     
-    table.cell(tradingInterface, 0, 7, "📍 Planned Entry", text_color=color.white)
-    table.cell(tradingInterface, 1, 7, "$" + str.tostring(plannedEntryPrice, "#.####"), text_color=color.yellow)
+    // Planned setup details (if pending)
+    if not na(plannedEntryPrice) and not entryActive
+        table.cell(tradingInterface, 0, 6, "⏳ PLANNED SETUP", text_color=color.white, bgcolor=color.new(color.orange, 70))
+        table.cell(tradingInterface, 1, 6, "WAITING FOR ENTRY", text_color=color.white, bgcolor=color.new(color.orange, 70))
+        
+        table.cell(tradingInterface, 0, 7, "📍 Entry", text_color=color.white)
+        table.cell(tradingInterface, 1, 7, "$" + str.tostring(plannedEntryPrice, "#.####"), text_color=color.yellow)
+        
+        table.cell(tradingInterface, 0, 8, "🛑 Stop", text_color=color.white)
+        table.cell(tradingInterface, 1, 8, "$" + str.tostring(plannedStopLoss, "#.####"), text_color=color.red)
+        
+        table.cell(tradingInterface, 0, 9, "🎯 TP1", text_color=color.white)
+        table.cell(tradingInterface, 1, 9, "$" + str.tostring(plannedTP1, "#.####"), text_color=color.green)
+        
+        table.cell(tradingInterface, 0, 10, "🎯 TP2", text_color=color.white)
+        table.cell(tradingInterface, 1, 10, "$" + str.tostring(plannedTP2, "#.####"), text_color=color.green)
+        
+        table.cell(tradingInterface, 0, 11, "🎯 TP3", text_color=color.white)
+        table.cell(tradingInterface, 1, 11, "$" + str.tostring(plannedTP3, "#.####"), text_color=color.green)
+        
+        // Distance to entry
+        distanceToEntry = math.abs(close - plannedEntryPrice) / close * 100
+        table.cell(tradingInterface, 0, 12, "📏 Distance", text_color=color.white)
+        table.cell(tradingInterface, 1, 12, str.tostring(distanceToEntry, "#.##") + "%", text_color=color.orange)
     
-    table.cell(tradingInterface, 0, 8, "🛑 Planned Stop", text_color=color.white)
-    table.cell(tradingInterface, 1, 8, "$" + str.tostring(plannedStopLoss, "#.####"), text_color=color.red)
-    
-    table.cell(tradingInterface, 0, 9, "🎯 Planned TP1", text_color=color.white)
-    table.cell(tradingInterface, 1, 9, "$" + str.tostring(plannedTP1, "#.####"), text_color=color.teal)
-    
-    table.cell(tradingInterface, 0, 10, "🎯 Planned TP2", text_color=color.white)
-    table.cell(tradingInterface, 1, 10, "$" + str.tostring(plannedTP2, "#.####"), text_color=color.teal)
-    
-    table.cell(tradingInterface, 0, 11, "🎯 Planned TP3", text_color=color.white)
-    table.cell(tradingInterface, 1, 11, "$" + str.tostring(plannedTP3, "#.####"), text_color=color.teal)
-    
-    // Distance to entry
-    distanceToEntry = math.abs(close - plannedEntryPrice) / close * 100
-    table.cell(tradingInterface, 0, 12, "📏 Distance to Entry", text_color=color.white)
-    table.cell(tradingInterface, 1, 12, str.tostring(distanceToEntry, "#.###") + "%", text_color=color.orange)
-    // Active Position Details (if position is active)
+    // Active position details
     if entryActive
         table.cell(tradingInterface, 0, 6, "💰 ACTIVE POSITION", text_color=color.white, bgcolor=color.new(color.blue, 70))
-        table.cell(tradingInterface, 1, 6, "LIVE TRADING DATA", text_color=color.white, bgcolor=color.new(color.blue, 70))
+        table.cell(tradingInterface, 1, 6, "LIVE TRADING", text_color=color.white, bgcolor=color.new(color.blue, 70))
         
-        table.cell(tradingInterface, 0, 7, "📈 Entry Price", text_color=color.white)
+        table.cell(tradingInterface, 0, 7, "📈 Entry", text_color=color.white)
         table.cell(tradingInterface, 1, 7, "$" + str.tostring(currentEntryPrice, "#.####"), text_color=color.blue)
         
-        table.cell(tradingInterface, 0, 8, "💹 Current Price", text_color=color.white)
-        pnlPercent = currentDirection == 1 ? (close - currentEntryPrice) / currentEntryPrice * 100 : (currentEntryPrice - close) / currentEntryPrice * 100
-        currentPriceText = "$" + str.tostring(close, "#.####") + " (" + (pnlPercent > 0 ? "+" : "") + str.tostring(pnlPercent, "#.##") + "%)"
+        table.cell(tradingInterface, 0, 8, "💹 Current", text_color=color.white)
+        pnlPercent = currentDirection == 1 ? (close - currentEntryPrice) / currentEntryPrice * 100 : 
+                     (currentEntryPrice - close) / currentEntryPrice * 100
+        currentPriceText = "$" + str.tostring(close, "#.####") + " (" + 
+                          (pnlPercent > 0 ? "+" : "") + str.tostring(pnlPercent, "#.##") + "%)"
         pnlColor = pnlPercent > 0 ? color.lime : pnlPercent < 0 ? color.red : color.yellow
         table.cell(tradingInterface, 1, 8, currentPriceText, text_color=pnlColor)
         
-        table.cell(tradingInterface, 0, 9, "🛑 Stop Loss", text_color=color.white)
+        table.cell(tradingInterface, 0, 9, "🛑 Stop", text_color=color.white)
         stopDistance = math.abs(close - currentStopLoss) / close * 100
         stopText = "$" + str.tostring(currentStopLoss, "#.####") + " (" + str.tostring(stopDistance, "#.##") + "%)"
         table.cell(tradingInterface, 1, 9, stopText, text_color=color.red)
         
-        table.cell(tradingInterface, 0, 10, "🎯 Take Profit 1", text_color=color.white)
+        table.cell(tradingInterface, 0, 10, "🎯 TP1", text_color=color.white)
         tp1Distance = math.abs(currentTP1 - close) / close * 100
         tp1Text = "$" + str.tostring(currentTP1, "#.####") + " (" + str.tostring(tp1Distance, "#.##") + "%)"
-        table.cell(tradingInterface, 1, 10, tp1Text, text_color=color.aqua)
+        table.cell(tradingInterface, 1, 10, tp1Text, text_color=color.lime)
         
-        table.cell(tradingInterface, 0, 11, "🎯 Take Profit 2", text_color=color.white)
+        table.cell(tradingInterface, 0, 11, "🎯 TP2", text_color=color.white)
         tp2Distance = math.abs(currentTP2 - close) / close * 100
         tp2Text = "$" + str.tostring(currentTP2, "#.####") + " (" + str.tostring(tp2Distance, "#.##") + "%)"
-        table.cell(tradingInterface, 1, 11, tp2Text, text_color=color.aqua)
+        table.cell(tradingInterface, 1, 11, tp2Text, text_color=color.lime)
         
-        table.cell(tradingInterface, 0, 12, "🎯 Take Profit 3", text_color=color.white)
+        table.cell(tradingInterface, 0, 12, "🎯 TP3", text_color=color.white)
         tp3Distance = math.abs(currentTP3 - close) / close * 100
         tp3Text = "$" + str.tostring(currentTP3, "#.####") + " (" + str.tostring(tp3Distance, "#.##") + "%)"
-        table.cell(tradingInterface, 1, 12, tp3Text, text_color=color.aqua)
+        table.cell(tradingInterface, 1, 12, tp3Text, text_color=color.lime)
         
-        table.cell(tradingInterface, 0, 13, "💼 Position Size", text_color=color.white)
+        table.cell(tradingInterface, 0, 13, "💼 Size", text_color=color.white)
         table.cell(tradingInterface, 1, 13, "$" + str.tostring(currentPositionSize, "#.##"), text_color=color.yellow)
         
         table.cell(tradingInterface, 0, 14, "⚡ Leverage", text_color=color.white)
@@ -1101,121 +1144,52 @@ if not na(plannedEntryPrice) and not entryActive
         leverageColor = currentLeverage > 10 ? color.red : currentLeverage > 5 ? color.orange : color.lime
         table.cell(tradingInterface, 1, 14, leverageText, text_color=leverageColor)
         
-        table.cell(tradingInterface, 0, 15, "💸 Risk Amount", text_color=color.white)
+        table.cell(tradingInterface, 0, 15, "💸 Risk", text_color=color.white)
         table.cell(tradingInterface, 1, 15, "$" + str.tostring(currentRiskAmount, "#.##"), text_color=color.orange)
-    
-    // Strategy Scores Section
-    scoreStartRow = entryActive ? 16 : not na(plannedEntryPrice) ? 13 : 6
-    
-    table.cell(tradingInterface, 0, scoreStartRow, "📊 STRATEGY SCORES", text_color=color.white, bgcolor=color.new(color.purple, 60))
-    table.cell(tradingInterface, 1, scoreStartRow, "AI ANALYSIS", text_color=color.white, bgcolor=color.new(color.purple, 60))
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 1, "⚡ Scalping", text_color=color.white)
-    scalpColor = scalpingStrategyScore > 50 ? color.lime : scalpingStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 1, str.tostring(scalpingStrategyScore, "#"), text_color=scalpColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 2, "🚀 Breakout", text_color=color.white)
-    breakoutColor = breakoutStrategyScore > 50 ? color.lime : breakoutStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 2, str.tostring(breakoutStrategyScore, "#"), text_color=breakoutColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 3, "📈 Momentum", text_color=color.white)
-    momentumColor = momentumStrategyScore > 50 ? color.lime : momentumStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 3, str.tostring(momentumStrategyScore, "#"), text_color=momentumColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 4, "🔄 Reversal", text_color=color.white)
-    reversalColor = reversalStrategyScore > 50 ? color.lime : reversalStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 4, str.tostring(reversalStrategyScore, "#"), text_color=reversalColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 5, "📊 MA Cross", text_color=color.white)
-    maColor = maCrossoverStrategyScore > 50 ? color.lime : maCrossoverStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 5, str.tostring(maCrossoverStrategyScore, "#"), text_color=maColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 6, "📉 RSI Strategy", text_color=color.white)
-    rsiColor = rsiStrategyStrategyScore > 50 ? color.lime : rsiStrategyStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 6, str.tostring(rsiStrategyStrategyScore, "#"), text_color=rsiColor)
-    
-    table.cell(tradingInterface, 0, scoreStartRow + 7, "📰 News Trading", text_color=color.white)
-    newsColor = newsTradingStrategyScore > 50 ? color.lime : newsTradingStrategyScore > 30 ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, scoreStartRow + 7, str.tostring(newsTradingStrategyScore, "#"), text_color=newsColor)
-    
-    // Market Analysis Section
-    analysisStartRow = scoreStartRow + 8
-    
-    table.cell(tradingInterface, 0, analysisStartRow, "🌊 MARKET ANALYSIS", text_color=color.white, bgcolor=color.new(color.navy, 60))
-    table.cell(tradingInterface, 1, analysisStartRow, "LIVE DATA", text_color=color.white, bgcolor=color.new(color.navy, 60))
-    
-    table.cell(tradingInterface, 0, analysisStartRow + 1, "📊 RSI", text_color=color.white)
-    rsiDisplayColor = rsi < 30 ? color.lime : rsi > 70 ? color.red : rsi < 40 ? color.yellow : rsi > 60 ? color.orange : color.gray
-    table.cell(tradingInterface, 1, analysisStartRow + 1, str.tostring(rsi, "#.#"), text_color=rsiDisplayColor)
-    
-    table.cell(tradingInterface, 0, analysisStartRow + 2, "📈 Trend", text_color=color.white)
-    trendText = trend == 1 ? "BULLISH" : "BEARISH"
-    trendDisplayColor = trend == 1 ? color.lime : color.red
-    table.cell(tradingInterface, 1, analysisStartRow + 2, trendText, text_color=trendDisplayColor)
-    
-    table.cell(tradingInterface, 0, analysisStartRow + 3, "🌊 Volatility", text_color=color.white)
-    volText = extremeVolatility ? "EXTREME" : highVolatility ? "HIGH" : microVolatility ? "MICRO" : lowVolatility ? "LOW" : "NORMAL"
-    volDisplayColor = extremeVolatility ? color.red : highVolatility ? color.orange : microVolatility ? color.yellow : color.gray
-    table.cell(tradingInterface, 1, analysisStartRow + 3, volText, text_color=volDisplayColor)
-    
-    table.cell(tradingInterface, 0, analysisStartRow + 4, "📊 Volume", text_color=color.white)
-    volumeText = extremeVolumeSpike ? "EXTREME" : megaVolumeSpike ? "MEGA" : volumeSpike ? "HIGH" : microVolumeSpike ? "MICRO" : "NORMAL"
-    volumeDisplayColor = extremeVolumeSpike ? color.red : megaVolumeSpike ? color.orange : volumeSpike ? color.yellow : microVolumeSpike ? color.lime : color.gray
-    table.cell(tradingInterface, 1, analysisStartRow + 4, volumeText, text_color=volumeDisplayColor)
 
-// ════════════════════════════════════════════════════════════════[...]
+// ════════════════════════════════════════════════════════════════
 // 🔔 ENHANCED ALERT SYSTEM
-// ════════════════════════════════════════════════════════════════[...]
+// ════════════════════════════════════════════════════════════════
 
-// Setup alerts for important events
-// Use constant messages (these are allowed in alertcondition)
-alertcondition(aiLongSignal, title="🚀 AI Long Signal", message="AI detected LONG opportunity")
-alertcondition(aiShortSignal, title="🔻 AI Short Signal", message="AI detected SHORT opportunity")
-alertcondition(entryTriggered, title="✅ Entry Triggered", message="Planned entry price reached")
-alertcondition(newsEvent, title="📰 News Event Detected", message="Major news event detected")
-alertcondition(whaleActivity, title="🐋 Whale Activity", message="Whale activity detected")
-// ════════════════════════════════════════════════════════════════[...]
+alertcondition(aiLongSignal, title="🚀 AI Long Signal", message="AI Long Signal Detected")
+alertcondition(aiShortSignal, title="🔻 AI Short Signal", message="AI Short Signal Detected")
+alertcondition(entryTriggered, title="✅ Entry Triggered", message="Entry Price Reached")
+alertcondition(exitCondition, title="🚪 Position Exit", message="Position Closed")
+alertcondition(newsEvent, title="📰 News Event", message="News Event Detected")
+alertcondition(whaleActivity, title="🐋 Whale Activity", message="Whale Activity Detected")
+
+// ════════════════════════════════════════════════════════════════
 // 📝 ENHANCED LABELS FOR KEY EVENTS
-// ════════════════════════════════════════════════════════════════[...]
+// ════════════════════════════════════════════════════════════════
 
-// Add labels for major events
 if newsEvent and barstate.isconfirmed
-    label.new(bar_index, high, "📰 NEWS", style=label.style_label_down, color=color.new(color.blue, 20), textcolor=color.white, size=size.small)
+    label.new(bar_index, high, "📰", style=label.style_label_down, color=color.new(color.blue, 20), 
+              textcolor=color.white, size=size.small)
 
 if whaleActivity and barstate.isconfirmed
-    whaleText = whaleAccumulation ? "🐋 ACC" : whaleMomentum ? "🐋 MOM" : "🐋 DIST"
-    label.new(bar_index, high, whaleText, style=label.style_label_down, color=color.new(color.purple, 30), textcolor=color.white, size=size.small)
+    whaleText = whaleAccumulation ? "🐋↗" : whaleMomentum ? "🐋⚡" : "🐋↘"
+    label.new(bar_index, high, whaleText, style=label.style_label_down, color=color.new(color.purple, 30), 
+              textcolor=color.white, size=size.small)
 
 if dipRecovery and barstate.isconfirmed
-    label.new(bar_index, low, "📈 DIP REC", style=label.style_label_up, color=color.new(color.green, 30), textcolor=color.white, size=size.small)
+    label.new(bar_index, low, "📈", style=label.style_label_up, color=color.new(color.green, 30), 
+              textcolor=color.white, size=size.small)
 
-if extremeVolatility and extremeVolumeSpike and barstate.isconfirmed
-    label.new(bar_index, high, "⚡ EXTREME", style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
+// ════════════════════════════════════════════════════════════════
+// 🎨 BACKGROUND AND STYLING
+// ════════════════════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════════════════════[...]
-// 🎨 BACKGROUND COLORING FOR MARKET CONDITIONS
-// ════════════════════════════════════════════════════════════════[...]
-
-// Background coloring for different market conditions
+// Background coloring for market conditions
 bgColor = newsEvent ? color.new(color.blue, 95) :
           extremeVolatility ? color.new(color.red, 98) :
           whaleActivity ? color.new(color.purple, 97) :
           dipRecovery ? color.new(color.green, 97) :
-          microVolumeSpike and microVolatility ? color.new(color.yellow, 98) :
-          na
+          microVolumeSpike and microVolatility ? color.new(color.yellow, 98) : na
 
 bgcolor(bgColor, title="Market Condition Background")
 
-// ════════════════════════════════════════════════════════════════[...]
-// 📊 ENHANCED MOVING AVERAGE PLOTS
-// ════════════════════════════════════════════════════════════════[...]
-
-// Plot key moving averages with enhanced styling
+// Plot key moving averages
 plot(ema_fast, color=color.new(color.blue, 0), linewidth=2, title="EMA Fast (8)")
 plot(ema_medium, color=color.new(color.orange, 0), linewidth=2, title="EMA Medium (18)")
 plot(ema_slow, color=color.new(color.gray, 20), linewidth=1, title="EMA Slow (45)")
 plot(ema_trend, color=color.new(color.white, 40), linewidth=3, title="EMA Trend (150)")
-
-// ════════════════════════════════════════════════════════════════[...]
-// END OF ENHANCED AI CRYPTO TRADING SYSTEM
-// ════════════════════════════════════════════════════════════════[...]
