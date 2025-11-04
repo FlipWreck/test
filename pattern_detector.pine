@@ -1,0 +1,24 @@
+//@version=5
+indicator("Pattern Detector", overlay=true)
+
+// Parameters
+sensitivity = input.int(14, title="Sensitivity", minval=1)
+
+// Function to detect pivot points
+pivotHigh = ta.pivothigh(high, sensitivity, sensitivity)
+pivotLow = ta.pivotlow(low, sensitivity, sensitivity)
+
+// Identify patterns
+var patterns = array.new_string(0)
+
+// Detect various patterns (example)
+if (pivotHigh)
+    array.push(patterns, "Pivot High")
+if (pivotLow)
+    array.push(patterns, "Pivot Low")
+
+// Draw detected patterns on the chart
+for i = 0 to array.size(patterns) - 1
+    label.new(bar_index[i], high[i], array.get(patterns, i), color=color.red)
+
+// Additional logic for detecting specific patterns can be added here
